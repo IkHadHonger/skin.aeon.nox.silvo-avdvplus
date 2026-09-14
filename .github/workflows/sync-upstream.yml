@@ -12,6 +12,9 @@ jobs:
   sync:
     runs-on: ubuntu-latest
 
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,13 +33,33 @@ jobs:
           git fetch upstream omega
           git fetch origin omega
 
+      - name: Check for upstream changes
+        id: check
+        shell: bash
+        run: |
+          CURRENT=$(git rev-parse origin/omega)
+          UPSTREAM=$(git rev-parse upstream/omega)
+
+          echo "Current omega:  $CURRENT"
+          echo "Upstream omega: $UPSTREAM"
+
+          if [ "$CURRENT" = "$UPSTREAM" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream changes detected."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream changes detected."
+          fi
+
       - name: Update omega from upstream
+        if: steps.check.outputs.changed == 'true'
         run: |
           git checkout -B omega origin/omega
           git reset --hard upstream/omega
           git push origin omega --force-with-lease
 
       - name: Merge upstream into avdvplus-custom
+        if: steps.check.outputs.changed == 'true'
         run: |
           git checkout avdvplus-custom
           git merge omega --no-edit
@@ -49,3 +72,10 @@ jobs:
           echo "- Upstream: signde/skin.aeon.nox.silvo:omega" >> "$GITHUB_STEP_SUMMARY"
           echo "- Mirror: omega" >> "$GITHUB_STEP_SUMMARY"
           echo "- Custom branch: avdvplus-custom" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Changes detected: ${{ steps.check.outputs.changed }}" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    uses: ./.github/workflows/deploy-to-my-repo.yml
+    secrets: inherit
