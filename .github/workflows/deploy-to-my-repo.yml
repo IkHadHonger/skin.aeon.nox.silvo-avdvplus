@@ -1,0 +1,120 @@
+name: Deploy AVDVPlus skin
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout AVDVPlus custom skin
+        uses: actions/checkout@v4
+        with:
+          ref: avdvplus-custom
+
+      - name: Read addon information
+        id: addon
+        shell: bash
+        run: |
+          ADDON_ID=$(sed -n 's/.*<addon[^>]*id="\([^"]*\)".*/\1/p' addon.xml | head -1)
+          VERSION=$(sed -n 's/.*<addon[^>]*version="\([^"]*\)".*/\1/p' addon.xml | head -1)
+
+          echo "id=$ADDON_ID" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "Addon: $ADDON_ID"
+          echo "Version: $VERSION"
+
+      - name: Build skin ZIP
+        shell: bash
+        run: |
+          ADDON_ID="${{ steps.addon.outputs.id }}"
+          VERSION="${{ steps.addon.outputs.version }}"
+
+          mkdir -p build/"$ADDON_ID"
+
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='build' \
+            ./ build/"$ADDON_ID"/
+
+          cd build
+          zip -r "${ADDON_ID}-${VERSION}.zip" "$ADDON_ID"
+
+      - name: Checkout IkHadHonger repository
+        uses: actions/checkout@v4
+        with:
+          repository: IkHadHonger/repository.silvo
+          ref: cube-custom
+          token: ${{ secrets.REPO_SILVO_PAT }}
+          path: kodi-repo
+
+      - name: Deploy skin to AVDVPlus channel
+        shell: bash
+        run: |
+          ADDON_ID="${{ steps.addon.outputs.id }}"
+          VERSION="${{ steps.addon.outputs.version }}"
+
+          TARGET="kodi-repo/avdvplus/${ADDON_ID}"
+
+          mkdir -p "$TARGET"
+
+          cp "build/${ADDON_ID}-${VERSION}.zip" "$TARGET/"
+          cp addon.xml "$TARGET/"
+
+          if [ -f icon.png ]; then
+            cp icon.png "$TARGET/"
+          fi
+
+          if [ -f fanart.jpg ]; then
+            cp fanart.jpg "$TARGET/"
+          fi
+
+      - name: Generate addons.xml
+        shell: bash
+        run: |
+          cd kodi-repo/avdvplus
+
+          echo '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' > addons.xml
+          echo '<addons>' >> addons.xml
+
+          while IFS= read -r addon; do
+            tail -n +2 "$addon" >> addons.xml
+          done < <(find . -mindepth 2 -maxdepth 2 -name addon.xml | sort)
+
+          echo '</addons>' >> addons.xml
+
+          md5sum addons.xml | awk '{print $1}' > addons.xml.md5
+
+      - name: Commit repository update
+        shell: bash
+        run: |
+          cd kodi-repo
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add avdvplus
+
+          if git diff --cached --quiet; then
+            echo "No repository changes."
+            exit 0
+          fi
+
+          git commit -m "Deploy AVDVPlus skin ${{ steps.addon.outputs.version }}"
+          git push origin cube-custom
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "## AVDVPlus deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Add-on: \`${{ steps.addon.outputs.id }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: \`${{ steps.addon.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Channel: \`avdvplus\`" >> "$GITHUB_STEP_SUMMARY"
