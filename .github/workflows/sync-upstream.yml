@@ -1,0 +1,51 @@
+name: Sync AVDVPlus upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "29 4 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: avdvplus-custom
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch signde upstream
+        run: |
+          git remote add upstream https://github.com/signde/skin.aeon.nox.silvo.git
+          git fetch upstream omega
+          git fetch origin omega
+
+      - name: Update omega from upstream
+        run: |
+          git checkout -B omega origin/omega
+          git reset --hard upstream/omega
+          git push origin omega --force-with-lease
+
+      - name: Merge upstream into avdvplus-custom
+        run: |
+          git checkout avdvplus-custom
+          git merge omega --no-edit
+          git push origin avdvplus-custom
+
+      - name: Summary
+        run: |
+          echo "## AVDVPlus upstream sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upstream: signde/skin.aeon.nox.silvo:omega" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Mirror: omega" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Custom branch: avdvplus-custom" >> "$GITHUB_STEP_SUMMARY"
